@@ -9,48 +9,40 @@ import Foundation
 import AVFoundation
 import ScreenCaptureKit
 import Combine
+import SwiftWhisper
+import AudioKit
+
 
 private let sampleRate = 16000
 
 class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput {
     
     var recording = false
-    private var whisper = try! Whisper(path: Bundle.main.url(forResource: "ggml-base.en", withExtension: "bin")!.path)
-    private var stream: SCStream?
-    private var availableContent: SCShareableContent?
     
-    private var buffer = [Float]()
-    private var oldBuffer = [Float]()
-    private var iter = 0
-    private var prompts = [Int32]()
+    var whisper = Whisper(fromFileURL: URL(fileURLWithPath: "/Users/jakubkotal/Downloads/ggml-base.en.bin"))
+    //    var whisper = Whisper(fromFileURL: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin")!)
     
+
     @Published private(set) var transcript = [String]()
-    private var subscriptions = Set<AnyCancellable>()
     
-    private var processQueue = DispatchQueue(label: "ch.laurinbrandner.processAudio")
-    private var whisperQueue = DispatchQueue(label: "ch.laurinbrandner.whisper")
+    private var audioEngine = AVAudioEngine()
+    private var audioBuffer = [Float]()
+    private var processingTimer: Timer?
+    private var lastProcessed = 0
+    private var fileNum = 1
+    private var isRecording = true
+    
     
     func updateAvailableContent() {
         Task {
             do {
-                self.availableContent = try await SCShareableContent.current
+//                self.availableContent = try await SCShareableContent.current
             }
             catch {
                 print(error)
             }
-            assert(self.availableContent?.displays.isEmpty != nil, "There needs to be at least one display connected")
-        }
-//        SCShareableContent.current { content, error in
-//            if let error = error {
-//                switch error {
-//                    case SCStreamError.userDeclined: self.requestPermissions()
-//                    default: print("[err] failed to fetch available content:", error.localizedDescription)
-//                }
-//                return
-//            }
-//            self.availableContent = content
 //            assert(self.availableContent?.displays.isEmpty != nil, "There needs to be at least one display connected")
-//        }
+        }
     }
     
     func requestPermissions() {
@@ -69,91 +61,98 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     }
     
     func startRecording() {
-        let conf = SCStreamConfiguration()
-        conf.queueDepth = 6
-        conf.width = 2
-        conf.height = 2
-        conf.capturesAudio = true
-//        conf.minimumFrameInterval = CMTime(seconds: 1, preferredTimescale: CMTimeScale(1))
-        conf.sampleRate = sampleRate
-        conf.channelCount = 1
-        
-        let excluded = self.availableContent?.applications.filter { app in
-            Bundle.main.bundleIdentifier == app.bundleIdentifier
-        }
-        let screen = availableContent!.displays.first!
-        let filter = SCContentFilter(display: screen, excludingApplications: excluded ?? [], exceptingWindows: [])
-
-        stream = SCStream(filter: filter, configuration: conf, delegate: self)
-        try! stream!.addStreamOutput(self, type: .screen, sampleHandlerQueue: .global())
-        try! stream!.addStreamOutput(self, type: .audio, sampleHandlerQueue: .global())
-
-        transcript = [""]
-        recording = true
-        Task {
-            try! await stream!.startCapture()
-        }
-    }
-    
-    func stopRecording() {
-        print("STOPPPIIING")
-        stream!.stopCapture()
-        recording = false
-    }
-    
-    private func process(_ samples: [Float]) {
-        buffer.append(contentsOf: samples)
-        
-        let n_samples_new = buffer.count
-        let n_samples_step = 2 * sampleRate
-        let n_samples_len = 10 * sampleRate
-        let n_samples_keep = sampleRate
-        let n_samples_take = min(oldBuffer.count, max(0, n_samples_keep + n_samples_len - n_samples_new))
-        
-//        print("processing: step = \(n_samples_step), take = \(n_samples_take), new = \(n_samples_new), old = \(oldBuffer.count)")
-        
-        if buffer.count > n_samples_step {
-            oldBuffer = oldBuffer.suffix(n_samples_take) + buffer
-            buffer = []
-            let frame = oldBuffer
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in  // Move to a background thread
+            self?.transcript = [""]
+            let inputNode = self?.audioEngine.inputNode
+            let inputFormat = inputNode?.outputFormat(forBus: 0)
             
-            let newLine = max(1, (n_samples_len / n_samples_step) - 1)
-            iter += 1
-            let startNewLine = (iter % newLine == 0)
-            if startNewLine {
-                oldBuffer = oldBuffer.suffix(n_samples_keep)
-            }
+            // Setup audio converter to convert to PCM with a single channel and sample rate of 44100
+            let audioConverter = AVAudioConverter(from: inputFormat!, to: AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(sampleRate), channels: 1, interleaved: false)!)
             
-            self.whisperQueue.async {
-                let text = self.whisper.transcribe(samples: frame)
-                self.transcript[self.transcript.count-1] = text
+            inputNode?.installTap(onBus: 0, bufferSize: 1600, format: inputFormat) { (buffer, when) in
+                let pcmBuffer = AVAudioPCMBuffer(pcmFormat: AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(sampleRate), channels: 1, interleaved: false)!, frameCapacity: 1600)!
                 
-                if startNewLine {
-                    self.transcript.append("")
+                let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
+                    outStatus.pointee = AVAudioConverterInputStatus.haveData
+                    return buffer
+                }
+                
+                var error: NSError?
+                audioConverter?.convert(to: pcmBuffer, error: &error, withInputFrom: inputBlock)
+                
+                if let channelData = pcmBuffer.floatChannelData?[0] {
+                    self?.audioBuffer.append(contentsOf: Array(UnsafeBufferPointer(start: channelData, count: Int(pcmBuffer.frameLength))))
                 }
             }
+            
+            do {
+                try self?.audioEngine.start()
+            } catch {
+                print("Could not start audio engine: \(error)")
+            }
+        }
+        
+        Task { [weak self] in // Moved to a Task to run the asynchronous function
+            do {
+                try await self?.process()
+            } catch {
+                print("An error occurred while processing: \(error)")
+            }
+        }
+    
+    }
+
+    
+    func stopRecording() {
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        // Invalidate the timer
+        processingTimer?.invalidate()
+        processingTimer = nil
+        self.isRecording = false
+        // Now audioBuffer contains the float samples.
+        // You can save it to memory or process it.
+    }
+    
+    private func saveToWavFile(file: [Float]) {
+        // Create AVAudioFormat
+        let audioFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(sampleRate), channels: 1, interleaved: false)!
+        
+        // Create AVAudioPCMBuffer
+        let pcmBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: AVAudioFrameCount(file.count))!
+        pcmBuffer.frameLength = AVAudioFrameCount(file.count)
+        
+        // Copy data to pcmBuffer
+        let channelData = pcmBuffer.floatChannelData![0]
+        for i in 0..<file.count {
+            channelData[i] = file[i]
+        }
+        
+        let outputFileUrl = URL(fileURLWithPath: "/Users/jakubkotal/Downloads/rec/test\(self.fileNum).wav")
+        self.fileNum  += 1
+        
+        do {
+            let audioFile = try AVAudioFile(forWriting: outputFileUrl, settings: audioFormat.settings)
+            try audioFile.write(from: pcmBuffer)
+            print("Successfully saved to \(outputFileUrl)")
+        } catch {
+            print("Error while saving to wav file: \(error)")
         }
     }
     
-    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of outputType: SCStreamOutputType) {
-        guard sampleBuffer.isValid else { return }
-        
-        try? sampleBuffer.withAudioBufferList { audioBufferList, blockBuffer in
-            guard let absd = sampleBuffer.formatDescription?.audioStreamBasicDescription,
-                  let format = AVAudioFormat(standardFormatWithSampleRate: absd.mSampleRate, channels: absd.mChannelsPerFrame),
-                  let buffer = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: audioBufferList.unsafePointer) else { return }
-            let arraySize = Int(buffer.frameLength)
-            let data = Array<Float>(UnsafeBufferPointer(start: buffer.floatChannelData![0], count:arraySize))
-            
-            self.processQueue.sync {
-                self.process(data)
+    private func process() async{
+        while(self.isRecording){
+            if(self.audioBuffer.count > 1000){
+                let temp = self.audioBuffer
+                self.audioBuffer = []
+                saveToWavFile(file: temp)
+                let text = try! await whisper.transcribe(audioFrames: temp)
+                print("Transcribed audio:", text.map(\.text).joined())
+                //                    self.transcript.append(text.map(\.text).joined())
+                self.transcript[self.transcript.count-1].append(text.map(\.text).joined())
             }
         }
     }
 
-    func stream(_ stream: SCStream, didStopWithError error: Error) {
-        stopRecording()
-    }
-    
 }
-
+//
