@@ -115,7 +115,8 @@ struct MainView: View {
     
     @ViewBuilder private func detail() -> some View {
         ScrollView {
-            Text(verbatim: selectedMeeting?.text ?? transcript)
+            let text = recording ? transcript : (selectedMeeting?.text ?? transcript)
+            Text(verbatim: text)
                 .font(.system(.body, design: .rounded))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

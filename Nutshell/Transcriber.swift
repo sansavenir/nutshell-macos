@@ -19,19 +19,36 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     
     var recording = false
     
-    var whisper = Whisper(fromFileURL: URL(fileURLWithPath: "/Users/jakubkotal/Downloads/ggml-base.en.bin"))
+    private var whisperHandler: WhisperHandler?
+    private var whisper: Whisper?
     //    var whisper = Whisper(fromFileURL: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin")!)
+//    var whisperHandler = WhisperHandler()
+//    var whisper.delegate = whisperHandler
     
 
     @Published private(set) var transcript = [String]()
     
     private var audioEngine = AVAudioEngine()
     private var audioBuffer = [Float]()
+    private var lhs = [Float]()
     private var processingTimer: Timer?
     private var lastProcessed = 0
     private var fileNum = 1
     private var isRecording = true
+    private var currentPos = 0
     
+    override init (){
+        super.init()
+        whisper = Whisper(fromFileURL: URL(fileURLWithPath: "/Users/jakubkotal/Downloads/ggml-tiny.en.bin"))
+        whisperHandler = WhisperHandler()
+        whisper?.delegate = whisperHandler
+        
+        whisperHandler?.updateText = { [weak self] text in
+            DispatchQueue.main.async {
+                self?.transcript = text
+            }
+        }
+    }
     
     func updateAvailableContent() {
         Task {
@@ -91,6 +108,7 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
                 print("Could not start audio engine: \(error)")
             }
         }
+        self.isRecording = true
         
         Task { [weak self] in // Moved to a Task to run the asynchronous function
             do {
@@ -106,12 +124,12 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     func stopRecording() {
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
-        // Invalidate the timer
-        processingTimer?.invalidate()
-        processingTimer = nil
         self.isRecording = false
-        // Now audioBuffer contains the float samples.
-        // You can save it to memory or process it.
+        self.transcript = [""]
+        self.whisperHandler?.text = [""]
+        self.currentPos = 0
+        self.audioBuffer = []
+        self.whisperHandler?.timestamps = [(0.0,0.0)]
     }
     
     private func saveToWavFile(file: [Float]) {
@@ -141,18 +159,42 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     }
     
     private func process() async{
-        while(self.isRecording){
-            if(self.audioBuffer.count > 1000){
-                let temp = self.audioBuffer
-                self.audioBuffer = []
-                saveToWavFile(file: temp)
-                let text = try! await whisper.transcribe(audioFrames: temp)
-                print("Transcribed audio:", text.map(\.text).joined())
-                //                    self.transcript.append(text.map(\.text).joined())
-                self.transcript[self.transcript.count-1].append(text.map(\.text).joined())
+        // Use a DispatchGroup to wait for all async tasks to complete
+        let group = DispatchGroup()
+
+        while self.isRecording {
+            let sec = 7
+            if self.audioBuffer.count > sec*sampleRate {
+                // Copy the buffer and clear it
+
+                // Async task
+                group.enter()
+                self.currentPos += self.audioBuffer.count-(sec*sampleRate)
+                self.audioBuffer = Array(self.audioBuffer[self.audioBuffer.count-(sec*sampleRate)..<self.audioBuffer.count])
+                self.whisperHandler?.time = Double(self.currentPos)/Double(sampleRate)
+                _ = try! await self.whisper!.transcribe(audioFrames: self.audioBuffer)
+                
+                
+//                DispatchQueue.global().async {
+//                    Task.init {
+//                        do {
+//                            _ = try await self.whisper!.transcribe(audioFrames: self.audioBuffer)
+//                            // Save the last 8000 elements for the next iteration
+////                            self.lhs = temp.suffix(1000)
+//
+//                        } catch {
+//                            print("Error during transcription: \(error)")
+//                        }
+//                        group.leave()
+//                    }
+//                }
+//
+//                // Optionally, you can wait for all transcriptions to complete before exiting
+//                group.wait()
+//                self.currentPos += temp.count
             }
         }
     }
 
+
 }
-//

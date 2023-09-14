@@ -15,6 +15,7 @@
 		4922603D2A1FDB4F0060629B /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4922603C2A1FDB4F0060629B /* MainView.swift */; };
 		4943FA3E2A321D250004BA33 /* TextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4943FA3D2A321D250004BA33 /* TextView.swift */; };
 		4986639A2A3B958400585AA0 /* Meeting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498663992A3B958400585AA0 /* Meeting.swift */; };
+		552DE7E02AB1D8E700686FBD /* WhisperHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 552DE7DF2AB1D8E700686FBD /* WhisperHandler.swift */; };
 		559561A42AB08AB300532FA6 /* SwiftWhisper in Frameworks */ = {isa = PBXBuildFile; productRef = 559561A32AB08AB300532FA6 /* SwiftWhisper */; };
 		55C502D82AAF3F4300FD7907 /* AudioKit in Frameworks */ = {isa = PBXBuildFile; productRef = 55C502D72AAF3F4300FD7907 /* AudioKit */; };
 /* End PBXBuildFile section */
@@ -30,6 +31,7 @@
 		4922603C2A1FDB4F0060629B /* MainView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
 		4943FA3D2A321D250004BA33 /* TextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextView.swift; sourceTree = "<group>"; };
 		498663992A3B958400585AA0 /* Meeting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Meeting.swift; sourceTree = "<group>"; };
+		552DE7DF2AB1D8E700686FBD /* WhisperHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperHandler.swift; sourceTree = "<group>"; };
 		553779642AAF118700C7E37C /* NutshellRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NutshellRelease.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -70,6 +72,7 @@
 				491D026E2A29D8F800E86DD7 /* Transcriber.swift */,
 				4922603C2A1FDB4F0060629B /* MainView.swift */,
 				4943FA3D2A321D250004BA33 /* TextView.swift */,
+				552DE7DF2AB1D8E700686FBD /* WhisperHandler.swift */,
 				492260112A1FD7F20060629B /* NutshellApp.swift */,
 				492260152A1FD7F30060629B /* Assets.xcassets */,
 				4922601A2A1FD7F30060629B /* Nutshell.entitlements */,
@@ -178,6 +181,7 @@
 				4986639A2A3B958400585AA0 /* Meeting.swift in Sources */,
 				4922603D2A1FDB4F0060629B /* MainView.swift in Sources */,
 				492260122A1FD7F20060629B /* NutshellApp.swift in Sources */,
+				552DE7E02AB1D8E700686FBD /* WhisperHandler.swift in Sources */,
 				491D026F2A29D8F800E86DD7 /* Transcriber.swift in Sources */,
 				4943FA3E2A321D250004BA33 /* TextView.swift in Sources */,
 			);
