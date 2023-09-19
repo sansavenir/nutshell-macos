@@ -18,35 +18,24 @@ class WhisperHandler: WhisperDelegate {
         print("New Segments at index \(index): \(segments)")
         // Append or insert new text into the UI
         let segment = segments[0]
-        if(!(segment.text.hasPrefix(" [") || segment.text.hasPrefix(" (") || segment.text.split(separator: " ").count < 5)){
-            //            text.append(segment.text + " " + String(time+Double(segment.startTime)/Double(1000)) + "-" +  String(time+Double(segment.endTime)/Double(1000)) + "\n")
-            //            text.append(segment.text + "\n")
-            //            text[text.count-1] = text[text.count-1] + segment.text
-            let interval = (time+Double(segment.startTime)/Double(1000)+0.3, time+Double(segment.endTime)/Double(1000)-0.3)
-            let ind = findOverlap(interval: interval)
-            print(interval)
-            print(timestamps)
-            
-            if(ind.1 == -1){
-                text.append(segment.text + "\n")
+        if(!(segment.text.hasPrefix(" [") || segment.text.hasPrefix(" (") || segment.text.split(separator: " ").count < 4)){
+            let interval = (time+Double(segment.startTime)/Double(1000)+0.1, time+Double(segment.endTime)/Double(1000)-0.1)
+//            let ind = findOverlap(interval: interval)
+            let ind = timestamps.last!
+
+            if(ind.1 < interval.0){
+                text.append(segment.text)
                 timestamps.append(interval)
-            } else {
-                let subArray = Array(text[ind.0...ind.1])
-                let combinedString = subArray.joined(separator: " ")
-                
-                let res = timestamps[ind.0].0 < interval.0 ? combineString(a: combinedString, b: segment.text) : combineString(a: segment.text, b: combinedString)
-                
-                text.removeSubrange(ind.0...ind.1)
-                text.insert(res + "\n", at: ind.0)
-                let intervalNew = (min(timestamps[ind.0].0, interval.0), max(timestamps[ind.1].1, interval.1))
-                timestamps.removeSubrange(ind.0...ind.1)
-                timestamps.insert(intervalNew, at: ind.0)
+            } else if(ind.0 < interval.0 && interval.0 < ind.1){
+                let res = combineString(a: text.last!, b: segment.text, interval: interval)
+                text.removeLast()
+                text.append(res)
             }
             updateText?(text)
         }
     }
     
-    func longestCommonSubsequence<T: Equatable>(_ array1: [T], _ array2: [T]) -> [T] {
+    func longestCommonSubsequence<T: Equatable>(_ array1: [T], _ array2: [T], interval: (Double, Double)) -> [T] {
         let m = array1.count
         let n = array2.count
         
@@ -83,30 +72,52 @@ class WhisperHandler: WhisperDelegate {
                 j -= 1
             }
         }
-        indicesA.reverse()
-        indicesB.reverse()
-        if(lcs.count > 4){
-            return Array(array1[0...indicesA.last!] + array2[indicesB.last!...])
-            
+        
+        if(lcs.count > 1){
+            let ind = timestamps.last!
+            let intervalNew = (min(ind.0, interval.0), max(ind.1, interval.1))
+            timestamps.removeLast()
+            timestamps.append(intervalNew)
+            return Array(array1[0...indicesA.first!-1] + array2[indicesB.first!...])
         } else {
+            timestamps.append(interval)
             return array1 + array2
         }
     }
+
     
-    func combineString(a: String, b: String) -> String {
-        var a = a.split(separator: " ")
-        if(a.count > 5){
-            a.removeFirst()
-            a.removeLast()
+    func findLongestCommonSuffixPrefix<T: Equatable>(a: [T], b: [T]) -> [T] {
+        var longest: [T] = []
+        let minCount = min(a.count, b.count)
+        
+        for i in 1...minCount {
+            let suffixA = Array(a.suffix(i))
+            let prefixB = Array(b.prefix(i))
+            
+            if suffixA == prefixB {
+                longest = suffixA
+            }
         }
         
-        var b = b.split(separator: " ")
-        if(b.count > 5){
-            b.removeFirst()
-            b.removeLast()
+        if(longest.count == 0){
+            return Array(a+b)
+        } else {
+            return Array(a[0...a.count-longest.count-1] + b[longest.count...])
         }
+    }
+    
+    func combineString(a: String, b: String, interval: (Double, Double)) -> String {
+        let a = a.split(separator: " ")
+        let b = b.split(separator: " ")
+//        a.removeLast()
+//        a.removeLast()
+//        b.removeFirst()
+//        b.removeFirst()
+//        let res = findLongestCommonSuffixPrefix(a: a, b: b)
         
-        let res = longestCommonSubsequence(a, b)
+        let len = min(a.count, min(b.count, 7))
+        let res = Array(a.prefix(a.count-len)) + longestCommonSubsequence(Array(a.suffix(len)), Array(b.prefix(len)), interval: interval) + Array(b.suffix(b.count-len))
+        
         return res.joined(separator: " ")
     }
     

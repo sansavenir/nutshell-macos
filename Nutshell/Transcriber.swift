@@ -45,7 +45,7 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
         
         whisperHandler?.updateText = { [weak self] text in
             DispatchQueue.main.async {
-                self?.transcript = text
+                self?.transcript = Array([text.joined(separator: "\n")])
             }
         }
     }
@@ -159,39 +159,13 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     }
     
     private func process() async{
-        // Use a DispatchGroup to wait for all async tasks to complete
-        let group = DispatchGroup()
-
         while self.isRecording {
-            let sec = 7
+            let sec = 5
             if self.audioBuffer.count > sec*sampleRate {
-                // Copy the buffer and clear it
-
-                // Async task
-                group.enter()
                 self.currentPos += self.audioBuffer.count-(sec*sampleRate)
                 self.audioBuffer = Array(self.audioBuffer[self.audioBuffer.count-(sec*sampleRate)..<self.audioBuffer.count])
                 self.whisperHandler?.time = Double(self.currentPos)/Double(sampleRate)
                 _ = try! await self.whisper!.transcribe(audioFrames: self.audioBuffer)
-                
-                
-//                DispatchQueue.global().async {
-//                    Task.init {
-//                        do {
-//                            _ = try await self.whisper!.transcribe(audioFrames: self.audioBuffer)
-//                            // Save the last 8000 elements for the next iteration
-////                            self.lhs = temp.suffix(1000)
-//
-//                        } catch {
-//                            print("Error during transcription: \(error)")
-//                        }
-//                        group.leave()
-//                    }
-//                }
-//
-//                // Optionally, you can wait for all transcriptions to complete before exiting
-//                group.wait()
-//                self.currentPos += temp.count
             }
         }
     }
