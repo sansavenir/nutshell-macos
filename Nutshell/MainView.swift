@@ -8,6 +8,8 @@
 import SwiftUI
 import ScreenCaptureKit
 import Combine
+import AVFoundation
+
 
 private var dateFormatter = DateFormatter()
 private var timeFormatter = {
@@ -22,7 +24,7 @@ private var timeFormatter = {
 struct MainView: View {
     
     var transcriber = Transcriber()
-    @State var transcript = ""
+    @State var transcript = [""]
     
     private var recording: Bool {
         durationInfo != nil
@@ -39,8 +41,8 @@ struct MainView: View {
     }
     
     @State private var showingInspector = false
-    
     @State private var subscriptions = Set<AnyCancellable>()
+    @State var audioPlayer: AVAudioPlayer?
     
     fileprivate init(meetings: [Meeting], showingInspector: Bool) {
         self._meetings = .constant(meetings)
@@ -65,7 +67,7 @@ struct MainView: View {
             transcriber.updateAvailableContent()
             transcriber.$transcript
                 .throttle(for: 1, scheduler: RunLoop.main, latest: true)
-                .map { $0.reduce("", +) }
+//                .map { $0.reduce("", +) }
                 .assign(to: \.transcript, on: self)
                 .store(in: &subscriptions)
         }
@@ -105,7 +107,7 @@ struct MainView: View {
                                 .lineLimit(2)
                             Text(dateFormatter.string(from: meeting.date))
                         }
-                        Text(verbatim: meeting.text)
+                        Text(verbatim: meeting.text.first!)
                             .lineLimit(3)
                     }
                 }
@@ -115,13 +117,34 @@ struct MainView: View {
     
     @ViewBuilder private func detail() -> some View {
         ScrollView {
-            let text = recording ? transcript : (selectedMeeting?.text ?? transcript)
-            Text(verbatim: text)
-                .font(.system(.body, design: .rounded))
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding()
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(transcript.indices, id: \.self) { index in
+                            HStack {
+                                Text(transcript[index])
+                                    .font(.system(.body, design: .rounded))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .onTapGesture {
+                                        playSound(num: index)
+                                    }
+                                    .padding(.bottom, 3)
+                            }
+                        }
+                    }
+                }
+                .padding()
     }
+    
+    func playSound(num: Int) {
+        let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0]
+        let url = URL(fileURLWithPath: documentsPath).appendingPathComponent("\(transcriber.uuid)/\(num).wav")
+        do {
+            audioPlayer = try AVAudioPlayer(contentsOf: url)
+            audioPlayer?.play()
+        } catch {
+            print("Error playing audio: \(error)")
+        }
+    }
+
     
     @ViewBuilder private func inspector() -> some View {
         VStack {
@@ -141,7 +164,7 @@ struct MainView: View {
     private func toggleRecording() {
         if recording {
             transcriber.stopRecording()
-            let newMeeting = Meeting(date: .now, title: "New Meeting", text: transcript)
+            let newMeeting = Meeting(date: .now, title: "New Meeting", text: transcript, id: transcriber.uuid)
             meetings.append(newMeeting)
             timer.upstream.connect().cancel()
             durationInfo = nil
@@ -162,8 +185,8 @@ struct MainView: View {
 struct MainView_Previews: PreviewProvider {
     
     static var previews: some View {
-        let text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. In vulputate semper lorem eget aliquam. Vivamus nulla turpis, interdum quis eleifend sed, sagittis sed felis. In ac velit pretium, facilisis erat quis, ullamcorper nulla. Vivamus non est sem. Nulla placerat, tortor vel tincidunt pretium, eros erat posuere risus, hendrerit commodo dui tortor eu ante. Nulla facilisi. Maecenas id neque ac dui rhoncus sollicitudin. Vestibulum mi leo, commodo eu posuere sed, consectetur sit amet massa. Suspendisse sit amet tempor quam. Vestibulum scelerisque massa massa, vel congue ex aliquet quis. Suspendisse fermentum erat id sem ornare pharetra. Aliquam sit amet nisl eget dui interdum tincidunt."
-        let meeting = Meeting(date: Date.now, title: "Super cool meeting", text: text)
+        let text = ["Lorem ipsum dolor sit amet, consectetur adipiscing elit. In vulputate semper lorem eget aliquam. Vivamus nulla turpis, interdum quis eleifend sed, sagittis sed felis. In ac velit pretium, facilisis erat quis, ullamcorper nulla. Vivamus non est sem. Nulla placerat, tortor vel tincidunt pretium, eros erat posuere risus, hendrerit commodo dui tortor eu ante. Nulla facilisi. Maecenas id neque ac dui rhoncus sollicitudin. Vestibulum mi leo, commodo eu posuere sed, consectetur sit amet massa. Suspendisse sit amet tempor quam. Vestibulum scelerisque massa massa, vel congue ex aliquet quis. Suspendisse fermentum erat id sem ornare pharetra. Aliquam sit amet nisl eget dui interdum tincidunt."]
+        let meeting = Meeting(date: Date.now, title: "Super cool meeting", text: text, id: UUID())
         
         MainView(meetings: [meeting], showingInspector: true)
     }

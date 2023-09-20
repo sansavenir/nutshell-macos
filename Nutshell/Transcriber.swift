@@ -21,10 +21,6 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     
     private var whisperHandler: WhisperHandler?
     private var whisper: Whisper?
-    //    var whisper = Whisper(fromFileURL: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin")!)
-//    var whisperHandler = WhisperHandler()
-//    var whisper.delegate = whisperHandler
-    
 
     @Published private(set) var transcript = [String]()
     
@@ -33,19 +29,32 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     private var lhs = [Float]()
     private var processingTimer: Timer?
     private var lastProcessed = 0
-    private var fileNum = 1
     private var isRecording = true
     private var currentPos = 0
+    private var timestamps = [(0.0, 0.0)]
+    private(set) var uuid = UUID()
+    private let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0]
+    private let fileManager = FileManager.default
+
+    
     
     override init (){
         super.init()
-        whisper = Whisper(fromFileURL: URL(fileURLWithPath: "/Users/jakubkotal/Downloads/ggml-tiny.en.bin"))
+        whisper = Whisper(fromFileURL: URL(fileURLWithPath: "/Users/jakubkotal/Downloads/ggml-tiny.bin"))
         whisperHandler = WhisperHandler()
         whisper?.delegate = whisperHandler
         
-        whisperHandler?.updateText = { [weak self] text in
+        whisperHandler?.updateText = { [weak self] res in
             DispatchQueue.main.async {
-                self?.transcript = Array([text.joined(separator: "\n")])
+                self?.transcript = res.0
+                self?.timestamps = res.1
+                
+                
+                
+                for (time, num) in zip(res.1, 0..<res.1.count){
+                    let url = URL(fileURLWithPath: self!.documentsPath).appendingPathComponent("\(self!.uuid.uuidString)/\(num).wav")
+                    self!.saveToWavFile(file: Array((self?.audioBuffer[Int(time.0*Double(sampleRate))...Int(time.1*Double(sampleRate))])!), path: url)
+                }
             }
         }
     }
@@ -79,7 +88,22 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     
     func startRecording() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in  // Move to a background thread
-            self?.transcript = [""]
+            self?.transcript = [String]()
+            self?.whisperHandler?.text = [String]()
+            self?.currentPos = 0
+            self?.audioBuffer = []
+            self?.whisperHandler?.time = 0.0
+            self?.whisperHandler?.timestamps = [(Double, Double)]()
+            self?.uuid = UUID()
+            let url = URL(fileURLWithPath: self!.documentsPath).appendingPathComponent("\(self!.uuid.uuidString)")
+            do {
+                try self?.fileManager.createDirectory(at: url,
+                                                withIntermediateDirectories: true,
+                                                attributes: nil)
+            } catch {
+                print("Error creating directory: \(error)")
+            }
+            
             let inputNode = self?.audioEngine.inputNode
             let inputFormat = inputNode?.outputFormat(forBus: 0)
             
@@ -125,14 +149,9 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
         self.isRecording = false
-        self.transcript = [""]
-        self.whisperHandler?.text = [""]
-        self.currentPos = 0
-        self.audioBuffer = []
-        self.whisperHandler?.timestamps = [(0.0,0.0)]
     }
     
-    private func saveToWavFile(file: [Float]) {
+    private func saveToWavFile(file: [Float], path: URL) {
         // Create AVAudioFormat
         let audioFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(sampleRate), channels: 1, interleaved: false)!
         
@@ -145,14 +164,10 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
         for i in 0..<file.count {
             channelData[i] = file[i]
         }
-        
-        let outputFileUrl = URL(fileURLWithPath: "/Users/jakubkotal/Downloads/rec/test\(self.fileNum).wav")
-        self.fileNum  += 1
-        
+                
         do {
-            let audioFile = try AVAudioFile(forWriting: outputFileUrl, settings: audioFormat.settings)
+            let audioFile = try AVAudioFile(forWriting: path, settings: audioFormat.settings)
             try audioFile.write(from: pcmBuffer)
-            print("Successfully saved to \(outputFileUrl)")
         } catch {
             print("Error while saving to wav file: \(error)")
         }
@@ -161,11 +176,12 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     private func process() async{
         while self.isRecording {
             let sec = 5
+            
             if self.audioBuffer.count > sec*sampleRate {
-                self.currentPos += self.audioBuffer.count-(sec*sampleRate)
-                self.audioBuffer = Array(self.audioBuffer[self.audioBuffer.count-(sec*sampleRate)..<self.audioBuffer.count])
+                self.currentPos = self.audioBuffer.count-(sec*sampleRate)
+                let analyse = Array(self.audioBuffer.suffix(sec*sampleRate))
                 self.whisperHandler?.time = Double(self.currentPos)/Double(sampleRate)
-                _ = try! await self.whisper!.transcribe(audioFrames: self.audioBuffer)
+                _ = try! await self.whisper!.transcribe(audioFrames: analyse)
             }
         }
     }

@@ -7,28 +7,14 @@
 
 import Foundation
 
-struct Meeting: Codable {
+struct Meeting: Codable, Hashable, Comparable {
  
     var date: Date
     var title: String
-    var text: String
-    
-}
-
-extension Meeting: Hashable {
-    
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(date.hashValue)
-        hasher.combine(title.hashValue)
-        hasher.combine(text.hashValue)
-    }
-    
-}
-
-extension Meeting: Comparable {
+    var text: [String]
+    let id : UUID
     
     static func < (lhs: Self, rhs: Self) -> Bool {
         return lhs.date < rhs.date
     }
-    
 }
