@@ -89,11 +89,9 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     func startRecording() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in  // Move to a background thread
             self?.transcript = [String]()
-            self?.whisperHandler?.text = [String]()
             self?.currentPos = 0
             self?.audioBuffer = []
-            self?.whisperHandler?.time = 0.0
-            self?.whisperHandler?.timestamps = [(Double, Double)]()
+            self?.whisperHandler?.initValues()
             self?.uuid = UUID()
             let url = URL(fileURLWithPath: self!.documentsPath).appendingPathComponent("\(self!.uuid.uuidString)")
             do {

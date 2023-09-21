@@ -13,12 +13,27 @@ class WhisperHandler: WhisperDelegate {
     var updateText: ((([String], [(Double, Double)])) -> Void)?
     var time = 0.0
     var text = [String]()
-    
     var timestamps = [(Double, Double)]()
+    
+    func initValues(){
+        time = 0.0
+        text = [String]()
+        timestamps = [(Double, Double)]()
+    }
+    
+    func whisper(_ aWhisper: Whisper, didCompleteWithSegments segments: [Segment]) {
+//        for segment in segments {
+//            processSegment(segment: segment)
+//        }
+    }
     
     func whisper(_ aWhisper: Whisper, didProcessNewSegments segments: [Segment], atIndex index: Int) {
         // Append or insert new text into the UI
         let segment = segments[0]
+        processSegment(segment: segment)
+    }
+    
+    func processSegment(segment: Segment){
         if(!(segment.text.hasPrefix(" [") || segment.text.hasPrefix(" (") || segment.text.split(separator: " ").count < 4)){
             let interval = (time+Double(segment.startTime)/Double(1000), time+Double(segment.endTime)/Double(1000))
 //            let ind = findOverlap(interval: interval)
@@ -33,6 +48,8 @@ class WhisperHandler: WhisperDelegate {
             updateText?((text, timestamps))
         }
     }
+    
+
     
     func longestCommonSubsequence(a: [String], b: [String], interval: (Double, Double)) {
         let len = min(a.count, min(b.count, 7))
