@@ -35,8 +35,8 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     private(set) var uuid = UUID()
     private let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0]
     private let fileManager = FileManager.default
+    private let audioBufferQueue = DispatchQueue(label: "com.yourapp.audioBufferQueue")
 
-    
     
     override init (){
         super.init()
@@ -53,7 +53,10 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
                 
                 for (time, num) in zip(res.1, 0..<res.1.count){
                     let url = URL(fileURLWithPath: self!.documentsPath).appendingPathComponent("\(self!.uuid.uuidString)/\(num).wav")
-                    self!.saveToWavFile(file: Array((self?.audioBuffer[Int(time.0*Double(sampleRate))...Int(time.1*Double(sampleRate))])!), path: url)
+                    self!.audioBufferQueue.async {
+                        self!.saveToWavFile(file: Array((self?.audioBuffer[Int(time.0*Double(sampleRate))...Int(time.1*Double(sampleRate))])!), path: url)
+                    }
+
                 }
             }
         }
@@ -120,7 +123,13 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
                 audioConverter?.convert(to: pcmBuffer, error: &error, withInputFrom: inputBlock)
                 
                 if let channelData = pcmBuffer.floatChannelData?[0] {
-                    self?.audioBuffer.append(contentsOf: Array(UnsafeBufferPointer(start: channelData, count: Int(pcmBuffer.frameLength))))
+                    let a = Array(UnsafeBufferPointer(start: channelData, count: Int(pcmBuffer.frameLength)))
+                    self?.audioBufferQueue.async {
+                        self?.audioBuffer.append(contentsOf: a)
+                    }
+
+//                    self?.audioBuffer.append(contentsOf: a)
+//                    self?.audioBuffer.append(contentsOf: Array(UnsafeBufferPointer(start: channelData, count: Int(pcmBuffer.frameLength))))
                 }
             }
             
@@ -132,9 +141,10 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
         }
         self.isRecording = true
         
+        
         Task { [weak self] in // Moved to a Task to run the asynchronous function
             do {
-                try await self?.process()
+                try? await self?.process()
             } catch {
                 print("An error occurred while processing: \(error)")
             }
@@ -175,14 +185,23 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
         while self.isRecording {
             let sec = 5
             
-            if self.audioBuffer.count > sec*sampleRate {
-                self.currentPos = self.audioBuffer.count-(sec*sampleRate)
-                let analyse = Array(self.audioBuffer.suffix(sec*sampleRate))
-                self.whisperHandler?.time = Double(self.currentPos)/Double(sampleRate)
+            var analyse = [Float]()
+            audioBufferQueue.sync {
+                let bufferSnapshot = self.audioBuffer
+                if self.audioBuffer.count > sec*sampleRate {
+                    self.currentPos = self.audioBuffer.count-(sec*sampleRate)
+                    analyse = Array(self.audioBuffer.suffix(sec*sampleRate))
+                    self.whisperHandler?.time = Double(self.currentPos)/Double(sampleRate)
+                }
+            }
+            if analyse.isNotEmpty{
                 _ = try! await self.whisper!.transcribe(audioFrames: analyse)
             }
         }
     }
+
+
+
 
 
 }
