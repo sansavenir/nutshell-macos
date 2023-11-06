@@ -24,7 +24,8 @@ private var timeFormatter = {
 struct MainView: View {
     
     var transcriber = Transcriber()
-    @State var transcript = [""]
+    @State var transcript : [String] = []
+    @State var editMode : [Bool] = []
     
     private var recording: Bool {
         durationInfo != nil
@@ -67,8 +68,11 @@ struct MainView: View {
             transcriber.updateAvailableContent()
             transcriber.$transcript
                 .throttle(for: 1, scheduler: RunLoop.main, latest: true)
-//                .map { $0.reduce("", +) }
                 .assign(to: \.transcript, on: self)
+                .store(in: &subscriptions)
+            transcriber.$editMode
+                .throttle(for: 1, scheduler: RunLoop.main, latest: true)
+                .assign(to: \.editMode, on: self)
                 .store(in: &subscriptions)
         }
     }
@@ -120,14 +124,29 @@ struct MainView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(transcript.indices, id: \.self) { index in
                             HStack {
-                                Text(transcript[index])
+                                if editMode[index] {
+                                    // TextField appears when the user wants to edit
+                                    TextField("Edit text", text: $transcript[index], onCommit: {
+                                        // Turn off edit mode when the user presses return
+                                        editMode[index] = false
+                                    })
                                     .font(.system(.body, design: .rounded))
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .onTapGesture {
-                                        playSound(num: index)
-                                    }
-                                    .padding(.bottom, 3)
+                                } else {
+                                    // Text appears when not in edit mode
+                                    Text(transcript[index])
+                                        .font(.system(.body, design: .rounded))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .onTapGesture(count: 2) {
+                                            // Enter edit mode when the user taps the Text
+                                            editMode[index] = true
+                                        }
+                                        .onTapGesture {
+                                            playSound(num: index)
+                                        }
+                                }
                             }
+                            .padding(.bottom, 3)
                         }
                     }
                 }

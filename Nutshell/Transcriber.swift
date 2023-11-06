@@ -23,6 +23,7 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     private var whisper: Whisper?
 
     @Published private(set) var transcript = [String]()
+    @Published private(set) var editMode = [Bool]()
     
     private var audioEngine = AVAudioEngine()
     private var audioBuffer = [Float]()
@@ -40,13 +41,14 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     
     override init (){
         super.init()
-        whisper = Whisper(fromFileURL: URL(fileURLWithPath: "/Users/jakubkotal/Downloads/ggml-tiny.bin"))
+        whisper = Whisper(fromFileURL: URL(fileURLWithPath: "/Users/jakubkotal/Downloads/ggml-tiny.en.bin"))
         whisperHandler = WhisperHandler()
         whisper?.delegate = whisperHandler
         
         whisperHandler?.updateText = { [weak self] res in
             DispatchQueue.main.async {
                 self?.transcript = res.0
+                self?.editMode = Array(repeating: false, count: self!.transcript.count)
                 self?.timestamps = res.1
                 
                 
@@ -92,6 +94,7 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
     func startRecording() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in  // Move to a background thread
             self?.transcript = [String]()
+            self?.editMode = [Bool]()
             self?.currentPos = 0
             self?.audioBuffer = []
             self?.whisperHandler?.initValues()
@@ -127,9 +130,6 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
                     self?.audioBufferQueue.async {
                         self?.audioBuffer.append(contentsOf: a)
                     }
-
-//                    self?.audioBuffer.append(contentsOf: a)
-//                    self?.audioBuffer.append(contentsOf: Array(UnsafeBufferPointer(start: channelData, count: Int(pcmBuffer.frameLength))))
                 }
             }
             
@@ -187,7 +187,6 @@ class Transcriber: NSObject, ObservableObject, SCStreamDelegate, SCStreamOutput 
             
             var analyse = [Float]()
             audioBufferQueue.sync {
-                let bufferSnapshot = self.audioBuffer
                 if self.audioBuffer.count > sec*sampleRate {
                     self.currentPos = self.audioBuffer.count-(sec*sampleRate)
                     analyse = Array(self.audioBuffer.suffix(sec*sampleRate))
